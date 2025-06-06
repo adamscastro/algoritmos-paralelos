@@ -1,0 +1,10 @@
+{
+  "java.project.sourcePaths": [
+    "src"
+  ],
+  "java.project.referencedLibraries": [
+    "libs/jfreechart-1.5.3.jar",
+    "libs/jcommon-1.0.24.jar",
+    "libs/jocl-2.0.4.jar"
+  ]
+}

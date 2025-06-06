@@ -1,0 +1,107 @@
+package app;
+
+import java.io.FileWriter;
+import java.nio.file.*;
+import java.util.*;
+
+public class Main {
+
+    public static void main(String[] args) throws Exception {
+        Files.createDirectories(Path.of("resultados"));
+
+        if (!Files.exists(Path.of("resultados/resultados.csv"))) {
+            try (FileWriter fw = new FileWriter("resultados/resultados.csv", true)) {
+                fw.write("Arquivo,Metodo,Threads,Ocorrencias,TempoMs\n");
+            }
+        }
+
+        if (args.length >= 2) {
+            String texto = Files.readString(Path.of(args[0]));
+            Map<String, Long> medias = new LinkedHashMap<>();
+            runAllAndSave(args[0], texto, args[1], true, medias);  // <- corrigido
+        } else {
+            // Modo automático (para professores/testes)
+            String pasta = "amostras";
+            String palavra = "the";
+            int repeticoes = 3;
+
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(Path.of(pasta), "*.txt")) {
+                for (Path arquivo : stream) {
+                    String txt = Files.readString(arquivo);
+                    for (int i = 0; i < repeticoes; i++) {
+                        Map<String, Long> medias = new LinkedHashMap<>();
+                        runAllAndSave(arquivo.toString(), txt, palavra, false, medias);
+                    }
+                }
+            }
+
+            // Após rodar automático, abre a GUI
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                GuiMain gui = new GuiMain();
+                gui.setVisible(true);
+            });
+        }
+    }
+
+    /**
+     * Executa SerialCPU, ParallelCPU (vários threads) e ParallelGPU,
+     * salva os resultados no CSV, preenche o mapa de médias, e retorna logs para a GUI.
+     */
+    public static List<String> runAllAndSave(String arquivo, String text, String word, boolean verbose, Map<String, Long> mediasOut) throws Exception {
+        List<String> logs = new ArrayList<>();
+        FileWriter fw = new FileWriter("resultados/resultados.csv", true);
+        int repeticoes = 3;
+
+        // SerialCPU
+        List<Long> serialTempos = new ArrayList<>();
+        for (int i = 1; i <= repeticoes; i++) {
+            long start = System.nanoTime();
+            int count = SerialCounter.countWord(text, word);
+            long time = (System.nanoTime() - start) / 1_000_000;
+            serialTempos.add(time);
+            String log = String.format("SerialCPU [amostra %d]: %d ocorrências em %d ms\n", i, count, time);
+            if (verbose) System.out.println(log);
+            logs.add(log);
+            fw.write(String.format("%s,SerialCPU,1,%d,%d\n", arquivo, count, time));
+        }
+        long avgSerial = serialTempos.stream().mapToLong(Long::longValue).sum() / repeticoes;
+        mediasOut.put("SerialCPU", avgSerial);
+
+        // ParallelCPU
+        int maxCores = Runtime.getRuntime().availableProcessors();
+        for (int t = 1; t <= maxCores; t *= 2) {
+            List<Long> tempos = new ArrayList<>();
+            for (int i = 1; i <= repeticoes; i++) {
+                long start = System.nanoTime();
+                int count = ParallelCpuCounter.countWord(text, word, t);
+                long time = (System.nanoTime() - start) / 1_000_000;
+                tempos.add(time);
+                String log = String.format("ParallelCPU-%dT [amostra %d]: %d ocorrências em %d ms\n", t, i, count, time);
+                if (verbose) System.out.println(log);
+                logs.add(log);
+                fw.write(String.format("%s,ParallelCPU,%d,%d,%d\n", arquivo, t, count, time));
+            }
+            String key = "ParallelCPU-" + t + "T";
+            long avg = tempos.stream().mapToLong(Long::longValue).sum() / repeticoes;
+            mediasOut.put(key, avg);
+        }
+
+        // ParallelGPU
+        List<Long> gpuTempos = new ArrayList<>();
+        for (int i = 1; i <= repeticoes; i++) {
+            long start = System.nanoTime();
+            int count = ParallelGpuCounter.countWordGPU(text, word);
+            long time = (System.nanoTime() - start) / 1_000_000;
+            gpuTempos.add(time);
+            String log = String.format("ParallelGPU [amostra %d]: %d ocorrências em %d ms\n", i, count, time);
+            if (verbose) System.out.println(log);
+            logs.add(log);
+            fw.write(String.format("%s,ParallelGPU,1,%d,%d\n", arquivo, count, time));
+        }
+        long avgGpu = gpuTempos.stream().mapToLong(Long::longValue).sum() / repeticoes;
+        mediasOut.put("ParallelGPU", avgGpu);
+
+        fw.close();
+        return logs;
+    }
+}

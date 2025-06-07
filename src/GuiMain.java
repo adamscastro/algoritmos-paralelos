@@ -1,5 +1,3 @@
-package app;
-
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
@@ -20,12 +18,13 @@ public class GuiMain extends JFrame {
     private JTextField txtWord;
     private JButton btnRun;
     private JTextArea outputArea;
-    private ChartPanel chartPanel;
+    private ChartPanel chartPanelMedia;
+    private ChartPanel chartPanelDetalhes;
 
     public GuiMain() {
         setTitle("Contagem Paralela de Palavras");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(800, 600);
+        setSize(900, 700);
         setLocationRelativeTo(null);
 
         JPanel content = new JPanel(new BorderLayout(10, 10));
@@ -38,7 +37,6 @@ public class GuiMain extends JFrame {
         JPanel filePanel = new JPanel(new BorderLayout(5, 5));
         txtFilePath = new JTextField();
         btnBrowse = new JButton("...");
-        btnBrowse.setToolTipText("Selecionar arquivo .txt");
         filePanel.add(new JLabel("Arquivo:"), BorderLayout.WEST);
         filePanel.add(txtFilePath, BorderLayout.CENTER);
         filePanel.add(btnBrowse, BorderLayout.EAST);
@@ -56,21 +54,26 @@ public class GuiMain extends JFrame {
         topPanel.add(centerTop, BorderLayout.CENTER);
         topPanel.add(btnRun, BorderLayout.EAST);
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        content.add(splitPane, BorderLayout.CENTER);
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        content.add(mainSplit, BorderLayout.CENTER);
 
         outputArea = new JTextArea();
         outputArea.setEditable(false);
         JScrollPane scrollOutput = new JScrollPane(outputArea);
         scrollOutput.setBorder(BorderFactory.createTitledBorder("Saída"));
+        mainSplit.setTopComponent(scrollOutput);
 
-        chartPanel = new ChartPanel(null);
-        chartPanel.setPreferredSize(new Dimension(400, 300));
-        chartPanel.setBorder(BorderFactory.createTitledBorder("Gráfico de Tempos"));
+        JPanel chartsPanel = new JPanel(new GridLayout(2, 1, 10, 10));
+        chartPanelMedia = new ChartPanel(null);
+        chartPanelMedia.setBorder(BorderFactory.createTitledBorder("Média de Tempos"));
 
-        splitPane.setTopComponent(scrollOutput);
-        splitPane.setBottomComponent(chartPanel);
-        splitPane.setDividerLocation(250);
+        chartPanelDetalhes = new ChartPanel(null);
+        chartPanelDetalhes.setBorder(BorderFactory.createTitledBorder("Tempos por Amostra"));
+
+        chartsPanel.add(chartPanelMedia);
+        chartsPanel.add(chartPanelDetalhes);
+        mainSplit.setBottomComponent(chartsPanel);
+        mainSplit.setDividerLocation(250);
 
         btnBrowse.addActionListener(e -> chooseFile());
         btnRun.addActionListener(e -> runCounting());
@@ -105,15 +108,21 @@ public class GuiMain extends JFrame {
 
         new Thread(() -> {
             try {
-                String text = Files.readString(Path.of(filePath));
+                String rawText = Files.readString(Path.of(filePath));
+                String cleanedText = TextCleaner.clean(rawText);
+
                 Map<String, Long> medias = new LinkedHashMap<>();
-                List<String> logs = Main.runAllAndSave(filePath, text, word, false, medias);
+                Map<String, List<Long>> detalhes = new LinkedHashMap<>();
+                List<String> logs = Main.runAllAndSave(filePath, cleanedText, word.toLowerCase(), false, medias, detalhes);
 
                 for (String linha : logs) {
                     SwingUtilities.invokeLater(() -> outputArea.append(linha + "\n"));
                 }
 
-                SwingUtilities.invokeLater(() -> updateChart(medias));
+                SwingUtilities.invokeLater(() -> {
+                    updateChartMedia(medias);
+                    updateChartDetalhado(detalhes);
+                });
 
             } catch (Exception ex) {
                 ex.printStackTrace();
@@ -124,20 +133,37 @@ public class GuiMain extends JFrame {
         }).start();
     }
 
-    private void updateChart(Map<String, Long> tempos) {
+    private void updateChartMedia(Map<String, Long> tempos) {
         DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-
         for (Map.Entry<String, Long> entry : tempos.entrySet()) {
-            dataset.addValue(entry.getValue(), "Tempo (ms)", entry.getKey());
+            dataset.addValue(entry.getValue(), "Tempo médio (ms)", entry.getKey());
         }
-
-        JFreeChart barChart = ChartFactory.createBarChart(
+        JFreeChart chart = ChartFactory.createBarChart(
                 "Média de Tempos por Método",
                 "Método",
                 "Tempo (ms)",
                 dataset
         );
-        chartPanel.setChart(barChart);
+        chartPanelMedia.setChart(chart);
+    }
+
+    private void updateChartDetalhado(Map<String, List<Long>> detalhes) {
+        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+        for (Map.Entry<String, List<Long>> entry : detalhes.entrySet()) {
+            String metodo = entry.getKey();
+            List<Long> tempos = entry.getValue();
+            for (int i = 0; i < tempos.size(); i++) {
+                dataset.addValue(tempos.get(i), metodo, "Amostra " + (i + 1));
+            }
+        }
+
+        JFreeChart chart = ChartFactory.createBarChart(
+                "Tempos por Amostra",
+                "Amostras",
+                "Tempo (ms)",
+                dataset
+        );
+        chartPanelDetalhes.setChart(chart);
     }
 
     public static void main(String[] args) {

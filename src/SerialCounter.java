@@ -1,5 +1,3 @@
-package app;
-
 public class SerialCounter {
     public static int countWord(String text, String word) {
         String[] words = text.split("\\W+");
@@ -12,4 +10,3 @@ public class SerialCounter {
         return count;
     }
 }
-

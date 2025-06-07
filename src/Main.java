@@ -1,5 +1,3 @@
-package app;
-
 import java.io.FileWriter;
 import java.nio.file.*;
 import java.util.*;
@@ -16,26 +14,28 @@ public class Main {
         }
 
         if (args.length >= 2) {
-            String texto = Files.readString(Path.of(args[0]));
+            String textoOriginal = Files.readString(Path.of(args[0]));
+            String texto = TextCleaner.clean(textoOriginal);
             Map<String, Long> medias = new LinkedHashMap<>();
-            runAllAndSave(args[0], texto, args[1], true, medias);  // <- corrigido
+            Map<String, List<Long>> detalhes = new LinkedHashMap<>();
+            runAllAndSave(args[0], texto, args[1], true, medias, detalhes);
         } else {
-            // Modo automático (para professores/testes)
             String pasta = "amostras";
             String palavra = "the";
             int repeticoes = 3;
 
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(Path.of(pasta), "*.txt")) {
                 for (Path arquivo : stream) {
-                    String txt = Files.readString(arquivo);
+                    String textoOriginal = Files.readString(arquivo);
+                    String txt = TextCleaner.clean(textoOriginal);
                     for (int i = 0; i < repeticoes; i++) {
                         Map<String, Long> medias = new LinkedHashMap<>();
-                        runAllAndSave(arquivo.toString(), txt, palavra, false, medias);
+                        Map<String, List<Long>> detalhes = new LinkedHashMap<>();
+                        runAllAndSave(arquivo.toString(), txt, palavra, false, medias, detalhes);
                     }
                 }
             }
 
-            // Após rodar automático, abre a GUI
             javax.swing.SwingUtilities.invokeLater(() -> {
                 GuiMain gui = new GuiMain();
                 gui.setVisible(true);
@@ -43,11 +43,14 @@ public class Main {
         }
     }
 
-    /**
-     * Executa SerialCPU, ParallelCPU (vários threads) e ParallelGPU,
-     * salva os resultados no CSV, preenche o mapa de médias, e retorna logs para a GUI.
-     */
-    public static List<String> runAllAndSave(String arquivo, String text, String word, boolean verbose, Map<String, Long> mediasOut) throws Exception {
+    public static List<String> runAllAndSave(
+            String arquivo,
+            String text,
+            String word,
+            boolean verbose,
+            Map<String, Long> mediasOut,
+            Map<String, List<Long>> detalhesOut) throws Exception {
+
         List<String> logs = new ArrayList<>();
         FileWriter fw = new FileWriter("resultados/resultados.csv", true);
         int repeticoes = 3;
@@ -66,10 +69,11 @@ public class Main {
         }
         long avgSerial = serialTempos.stream().mapToLong(Long::longValue).sum() / repeticoes;
         mediasOut.put("SerialCPU", avgSerial);
+        detalhesOut.put("SerialCPU", serialTempos);
 
         // ParallelCPU
-        int maxCores = Runtime.getRuntime().availableProcessors();
-        for (int t = 1; t <= maxCores; t *= 2) {
+        int[] threadCounts = {1, 2, 4, 8, 12, 16, 24};
+        for (int t : threadCounts) {
             List<Long> tempos = new ArrayList<>();
             for (int i = 1; i <= repeticoes; i++) {
                 long start = System.nanoTime();
@@ -84,6 +88,7 @@ public class Main {
             String key = "ParallelCPU-" + t + "T";
             long avg = tempos.stream().mapToLong(Long::longValue).sum() / repeticoes;
             mediasOut.put(key, avg);
+            detalhesOut.put(key, tempos);
         }
 
         // ParallelGPU
@@ -100,6 +105,7 @@ public class Main {
         }
         long avgGpu = gpuTempos.stream().mapToLong(Long::longValue).sum() / repeticoes;
         mediasOut.put("ParallelGPU", avgGpu);
+        detalhesOut.put("ParallelGPU", gpuTempos);
 
         fw.close();
         return logs;
